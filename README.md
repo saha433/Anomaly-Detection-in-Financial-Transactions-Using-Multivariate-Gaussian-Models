@@ -78,7 +78,7 @@ The model flags the bottom 0.5% of transactions by probability (adjustable in th
 
 ---
 
-## The math (in plain English)
+## The math 
 
 **Multivariate Gaussian** estimates the mean vector μ and covariance matrix Σ from normal transactions. For any new transaction x, it computes p(x) — the probability of being "normal." Transactions with p(x) below threshold ε are flagged.
 
