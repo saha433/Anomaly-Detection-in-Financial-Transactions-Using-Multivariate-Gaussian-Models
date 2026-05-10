@@ -1,12 +1,3 @@
-"""
-train.py — Full training pipeline for anomaly detection on bank_transactions_data_2
-
-Run:
-    python train.py
-    python train.py --data data/bank_transactions_data_2.csv
-    python train.py --data data/bank_transactions_data_2.csv --no-labels
-"""
-
 import argparse
 import os
 import sys
@@ -18,22 +9,24 @@ from src.features  import load_data, engineer_features, scale_features
 from src.model     import MultivariateGaussianDetector, IsolationForestDetector
 from src.evaluate  import print_report, plot_probability_distribution, plot_confusion_matrix, plot_precision_recall, compare_models
 
+DEFAULT_DATA = "/Users/saha/Downloads/financial_fraud_detection_dataset.csv"
+if not os.path.exists(DEFAULT_DATA):
+    DEFAULT_DATA = "data/financial_fraud_detection_dataset.csv"
 
-def main(data_path: str, has_labels: bool = True):
+
+def main(data_path: str, has_labels: bool = True, sample_rows: int | None = None):
     print("\n" + "="*60)
-    print("  Anomaly Detection — bank_transactions_data_2")
+    print("  Anomaly Detection — financial_fraud_detection_dataset")
     print("="*60 + "\n")
 
-    # ── 1. Load & engineer features ───────────────────────────────────────────
     print("[1/5] Loading data...")
-    df = load_data(data_path)
+    df = load_data(data_path, nrows=sample_rows)
 
     print("\n[2/5] Engineering features...")
     X, y, feature_names = engineer_features(df)
     X_scaled = scale_features(X, fit=True)
     print(f"  Features used: {feature_names}")
 
-    # ── 2. Train / validation split ───────────────────────────────────────────
     print("\n[3/5] Splitting data...")
     if has_labels and y is not None:
         X_train, X_val, y_train, y_val = train_test_split(
@@ -42,14 +35,12 @@ def main(data_path: str, has_labels: bool = True):
         X_normal = X_train[y_train == 0]
         print(f"  Train: {len(X_train):,} | Val: {len(X_val):,} | Normal (train): {len(X_normal):,}")
     else:
-        # unsupervised: train on everything, no validation labels
         X_train = X_val = X_scaled
         y_train = y_val = None
         X_normal = X_scaled
         has_labels = False
         print(f"  Unsupervised mode: {len(X_normal):,} transactions")
 
-    # ── 3. Fit models ─────────────────────────────────────────────────────────
     print("\n[4/5] Fitting models...")
     os.makedirs("models", exist_ok=True)
 
@@ -65,11 +56,10 @@ def main(data_path: str, has_labels: bool = True):
     mvg.save()
 
     # Isolation Forest
-    iso = IsolationForestDetector(contamination=0.002 if not has_labels else y_train.mean())
+    iso = IsolationForestDetector(contamination=0.002 if not has_labels else max(float(y_train.mean()), 1e-5))
     iso.fit(X_normal)
     iso.save()
 
-    # ── 4. Evaluate ───────────────────────────────────────────────────────────
     print("\n[5/5] Evaluating...")
 
     mvg_preds  = mvg.predict(X_val)
@@ -97,9 +87,11 @@ def main(data_path: str, has_labels: bool = True):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", default="data/bank_transactions_data_2.csv",
+    parser.add_argument("--data", default=DEFAULT_DATA,
                         help="Path to your CSV file")
+    parser.add_argument("--sample-rows", type=int, default=None,
+                        help="Optional row limit for quick experiments on very large CSV files")
     parser.add_argument("--no-labels", action="store_true",
                         help="Run in unsupervised mode (no fraud labels needed)")
     args = parser.parse_args()
-    main(args.data, has_labels=not args.no_labels)
+    main(args.data, has_labels=not args.no_labels, sample_rows=args.sample_rows)

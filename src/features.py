@@ -5,12 +5,18 @@ import joblib
 import os
 
 COLUMN_ALIASES = {
-    "amount":    ["Amount", "amount", "TransactionAmount", "transaction_amount", "amt"],
-    "time":      ["Time", "time", "Timestamp", "timestamp", "Date", "date", "TransactionDate"],
-    "label":     ["Class", "class", "isFraud", "is_fraud", "Fraud", "fraud", "Label", "label"],
+    "amount": ["amount", "Amount", "TransactionAmount", "transaction_amount", "amt"],
+    "time": ["timestamp", "Timestamp", "Time", "time", "Date", "date", "TransactionDate"],
+    "label": ["is_fraud", "isFraud", "Class", "class", "Fraud", "fraud", "Label", "label"],
 }
 
 SCALER_PATH = "models/scaler.pkl"
+FRAUD_DATA_NUMERIC_FEATURES = [
+    "time_since_last_transaction",
+    "spending_deviation_score",
+    "velocity_score",
+    "geo_anomaly_score",
+]
 
 
 def detect_column(df: pd.DataFrame, role: str) -> str | None:
@@ -18,17 +24,22 @@ def detect_column(df: pd.DataFrame, role: str) -> str | None:
     for candidate in COLUMN_ALIASES[role]:
         if candidate in df.columns:
             return candidate
+    normalized = {str(col).lower(): col for col in df.columns}
+    for candidate in COLUMN_ALIASES[role]:
+        match = normalized.get(candidate.lower())
+        if match is not None:
+            return match
     return None
 
 
-def load_data(filepath: str) -> pd.DataFrame:
-    """Load the bank_transactions_data_2 CSV."""
+def load_data(filepath: str, nrows: int | None = None) -> pd.DataFrame:
+    """Load a financial transaction CSV or Excel file."""
     if filepath.endswith(".csv"):
-        df = pd.read_csv(filepath)
+        df = pd.read_csv(filepath, nrows=nrows)
     elif filepath.endswith(".xlsx"):
-        df = pd.read_excel(filepath)
+        df = pd.read_excel(filepath, nrows=nrows)
     else:
-        df = pd.read_csv(filepath)
+        df = pd.read_csv(filepath, nrows=nrows)
 
     print(f"Loaded {len(df):,} rows, {df.shape[1]} columns")
     print(f"Columns: {list(df.columns)}")
@@ -44,7 +55,6 @@ def engineer_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None, 
 
     feature_cols = []
 
-    # ── Amount feature ────────────────────────────────────────────────────────
     amount_col = detect_column(df, "amount")
     if amount_col:
         df["amount_log"] = np.log1p(df[amount_col].clip(lower=0))
@@ -70,6 +80,11 @@ def engineer_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None, 
     else:
         print("  WARNING: No time column found. Skipping time features.")
 
+    fraud_numeric = [c for c in FRAUD_DATA_NUMERIC_FEATURES if c in df.columns]
+    if fraud_numeric:
+        feature_cols += fraud_numeric
+        print(f"  Fraud-dataset numeric features detected: {fraud_numeric}")
+
     v_cols = [c for c in df.columns if c.startswith("V") and c[1:].isdigit()]
     if v_cols:
         top_v = [c for c in ["V1","V2","V3","V4","V5","V10","V12","V14","V17"] if c in df.columns]
@@ -84,7 +99,7 @@ def engineer_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray | None, 
         print(f"  Using all numeric columns as features: {feature_cols}")
 
     label_col = detect_column(df, "label")
-    y = df[label_col].values.astype(int) if label_col else None
+    y = df[label_col].astype(int).values if label_col else None
     if label_col:
         print(f"  Label column detected: '{label_col}' | fraud rate: {y.mean()*100:.3f}%")
     else:
